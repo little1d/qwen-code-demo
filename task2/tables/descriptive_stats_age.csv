@@ -1,0 +1,3 @@
+treatment_group,n,mean,std,min,max
+DRUG_A,24,59.71,8.61,41,78
+DRUG_B,24,59.54,8.87,45,73

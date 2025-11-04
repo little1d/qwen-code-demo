@@ -1,0 +1,5 @@
+variable,type,before_matching,after_matching,balanced
+age,continuous,-0.03385076975004409,-0.03385076975004409,True
+gender,categorical,0.13468700594029479,0.26438517250557736,False
+region,categorical,0.2935435239509036,0.6788778101388028,False
+comorbidity_count,continuous,0.14388861576723855,0.14388861576723855,False

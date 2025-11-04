@@ -1,0 +1,340 @@
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from scipy import stats
+import os
+
+def load_data():
+    """
+    加载任务1和任务3的数据
+    """
+    print("加载任务1和任务3的数据...")
+    
+    # 加载任务1的研究队列数据
+    study_population = pd.read_csv('task1/study_population.csv')
+    print(f"研究队列数据: {study_population.shape}")
+    
+    # 加载原始的各个数据表
+    patient_demo = pd.read_csv('task1/cleaned_patient_demo.csv')
+    diagnoses = pd.read_csv('task1/cleaned_diagnoses.csv')
+    medical_events = pd.read_csv('task1/cleaned_medical_events.csv')
+    costs = pd.read_csv('task1/cleaned_costs.csv')
+    prescriptions = pd.read_csv('task1/cleaned_prescriptions.csv')
+    
+    print(f"患者人口统计学数据: {patient_demo.shape}")
+    print(f"诊断数据: {diagnoses.shape}")
+    print(f"医疗事件数据: {medical_events.shape}")
+    print(f"费用数据: {costs.shape}")
+    print(f"处方数据: {prescriptions.shape}")
+    
+    # 加载匹配结果
+    try:
+        matched_pairs = pd.read_csv('task3/tables/matched_pairs.csv')
+        print(f"匹配对数据: {matched_pairs.shape}")
+        matched_analysis = True
+    except FileNotFoundError:
+        print("未找到匹配对数据，使用全部队列进行分析")
+        matched_pairs = None
+        matched_analysis = False
+    
+    # 将日期列转换为datetime类型
+    study_population['followup_start'] = pd.to_datetime(study_population['followup_start'])
+    study_population['followup_end'] = pd.to_datetime(study_population['followup_end'])
+    medical_events['event_date'] = pd.to_datetime(medical_events['event_date'])
+    costs['cost_date'] = pd.to_datetime(costs['cost_date'])
+    prescriptions['prescription_date'] = pd.to_datetime(prescriptions['prescription_date'])
+    
+    return {
+        'study_population': study_population,
+        'patient_demo': patient_demo,
+        'diagnoses': diagnoses,
+        'medical_events': medical_events,
+        'costs': costs,
+        'prescriptions': prescriptions,
+        'matched_pairs': matched_pairs,
+        'matched_analysis': matched_analysis
+    }
+
+def calculate_outcomes(data):
+    """
+    计算所有结局指标
+    """
+    print("计算结局指标...")
+    
+    study_pop = data['study_population']
+    medical_events = data['medical_events']
+    costs = data['costs']
+    prescriptions = data['prescriptions']
+    
+    # 准备结果DataFrame
+    outcomes = study_pop[['patient_id', 'treatment_group']].copy()
+    
+    # 1. 计算随访期内的急诊就诊次数
+    print("计算随访期内的急诊就诊次数...")
+    er_events = medical_events[medical_events['event_type'] == 'ER'].copy()
+    
+    # 筛选在随访期内的急诊事件
+    er_followup = er_events.merge(
+        study_pop[['patient_id', 'followup_start', 'followup_end']], 
+        on='patient_id', 
+        how='inner'
+    )
+    er_followup = er_followup[
+        (er_followup['event_date'] >= er_followup['followup_start']) &
+        (er_followup['event_date'] <= er_followup['followup_end'])
+    ]
+    
+    # 计算每个患者的急诊就诊次数
+    er_counts = er_followup.groupby('patient_id').size().reset_index(name='er_visits')
+    outcomes = outcomes.merge(er_counts, on='patient_id', how='left')
+    outcomes['er_visits'] = outcomes['er_visits'].fillna(0)
+    
+    # 2. 计算随访期内的住院次数
+    print("计算随访期内的住院次数...")
+    hosp_events = medical_events[medical_events['event_type'] == 'Hospitalization'].copy()
+    
+    # 筛选在随访期内的住院事件
+    hosp_followup = hosp_events.merge(
+        study_pop[['patient_id', 'followup_start', 'followup_end']], 
+        on='patient_id', 
+        how='inner'
+    )
+    hosp_followup = hosp_followup[
+        (hosp_followup['event_date'] >= hosp_followup['followup_start']) &
+        (hosp_followup['event_date'] <= hosp_followup['followup_end'])
+    ]
+    
+    # 计算每个患者的住院次数
+    hosp_counts = hosp_followup.groupby('patient_id').size().reset_index(name='hospitalizations')
+    outcomes = outcomes.merge(hosp_counts, on='patient_id', how='left')
+    outcomes['hospitalizations'] = outcomes['hospitalizations'].fillna(0)
+    
+    # 3. 计算随访期内的住院天数总和
+    print("计算随访期内的住院天数总和...")
+    hosp_days = hosp_followup.groupby('patient_id')['length_of_stay'].sum().reset_index(name='total_hospital_days')
+    outcomes = outcomes.merge(hosp_days, on='patient_id', how='left')
+    outcomes['total_hospital_days'] = outcomes['total_hospital_days'].fillna(0)
+    
+    # 4. 计算随访期内的门诊就诊次数
+    print("计算随访期内的门诊就诊次数...")
+    op_events = medical_events[medical_events['event_type'] == 'Outpatient'].copy()
+    
+    # 筛选在随访期内的门诊事件
+    op_followup = op_events.merge(
+        study_pop[['patient_id', 'followup_start', 'followup_end']], 
+        on='patient_id', 
+        how='inner'
+    )
+    op_followup = op_followup[
+        (op_followup['event_date'] >= op_followup['followup_start']) &
+        (op_followup['event_date'] <= op_followup['followup_end'])
+    ]
+    
+    # 计算每个患者的门诊就诊次数
+    op_counts = op_followup.groupby('patient_id').size().reset_index(name='outpatient_visits')
+    outcomes = outcomes.merge(op_counts, on='patient_id', how='left')
+    outcomes['outpatient_visits'] = outcomes['outpatient_visits'].fillna(0)
+    
+    # 5. 计算随访期内的总医疗费用
+    print("计算随访期内的总医疗费用...")
+    costs_followup = costs.merge(
+        study_pop[['patient_id', 'followup_start', 'followup_end']], 
+        on='patient_id', 
+        how='inner'
+    )
+    costs_followup = costs_followup[
+        (costs_followup['cost_date'] >= costs_followup['followup_start']) &
+        (costs_followup['cost_date'] <= costs_followup['followup_end'])
+    ]
+    
+    # 计算每个患者的总医疗费用
+    total_costs = costs_followup.groupby('patient_id')['cost_amount'].sum().reset_index(name='total_cost')
+    outcomes = outcomes.merge(total_costs, on='patient_id', how='left')
+    outcomes['total_cost'] = outcomes['total_cost'].fillna(0)
+    
+    # 6. 计算随访期内的处方费用
+    print("计算随访期内的处方费用...")
+    prescription_costs = costs_followup[costs_followup['cost_type'] == 'Prescription'].copy()
+    rx_costs = prescription_costs.groupby('patient_id')['cost_amount'].sum().reset_index(name='prescription_cost')
+    outcomes = outcomes.merge(rx_costs, on='patient_id', how='left')
+    outcomes['prescription_cost'] = outcomes['prescription_cost'].fillna(0)
+    
+    print(f"结局指标计算完成，共处理 {len(outcomes)} 名患者")
+    
+    return outcomes
+
+def calculate_pdc(data):
+    """
+    计算每个患者的PDC（Proportion of Days Covered）
+    """
+    print("计算每个患者的PDC...")
+    
+    study_pop = data['study_population']
+    prescriptions = data['prescriptions']
+    
+    # 筛选目标药物的处方记录
+    target_prescriptions = prescriptions[prescriptions['is_target_drug'] == True].copy()
+    
+    # 准备PDC计算数据
+    pdc_results = []
+    
+    for patient_id in study_pop['patient_id']:
+        # 获取当前患者的随访期
+        followup_info = study_pop[study_pop['patient_id'] == patient_id].iloc[0]
+        followup_start = followup_info['followup_start']
+        followup_end = followup_info['followup_end']
+        
+        # 获取当前患者的处方记录
+        patient_prescriptions = target_prescriptions[target_prescriptions['patient_id'] == patient_id].copy()
+        patient_prescriptions = patient_prescriptions.sort_values('prescription_date')
+        
+        # 计算随访天数
+        followup_days = (followup_end - followup_start).days + 1  # 包含起始日
+        
+        # 计算覆盖天数
+        # 创建一个日期范围，然后标记被药物覆盖的天数
+        date_range = pd.date_range(start=followup_start, end=followup_end, freq='D')
+        covered_days = set()
+        
+        for idx, row in patient_prescriptions.iterrows():
+            # 药物覆盖的开始日期
+            drug_start = max(row['prescription_date'], followup_start)
+            # 药物覆盖的结束日期
+            drug_end = min(row['prescription_date'] + timedelta(days=row['days_supply']-1), followup_end)
+            
+            # 添加覆盖的日期到集合中
+            current_date = drug_start
+            while current_date <= drug_end:
+                covered_days.add(current_date)
+                current_date += timedelta(days=1)
+        
+        covered_days_count = len(covered_days)
+        pdc = (covered_days_count / followup_days) * 100 if followup_days > 0 else 0
+        
+        pdc_results.append({
+            'patient_id': patient_id,
+            'pdc': pdc,
+            'covered_days': covered_days_count,
+            'followup_days': followup_days
+        })
+    
+    pdc_df = pd.DataFrame(pdc_results)
+    
+    print(f"PDC计算完成，共计算 {len(pdc_df)} 名患者的PDC")
+    
+    return pdc_df
+
+def calculate_discontinuation_time(data):
+    """
+    定义停药并计算治疗持续性
+    """
+    print("计算治疗持续性...")
+    
+    study_pop = data['study_population']
+    prescriptions = data['prescriptions']
+    
+    # 筛选目标药物的处方记录
+    target_prescriptions = prescriptions[prescriptions['is_target_drug'] == True].copy()
+    
+    # 定义停药：连续60天无目标药物处方
+    discontinuation_days = 60
+    
+    discontinuation_results = []
+    
+    for patient_id in study_pop['patient_id']:
+        # 获取当前患者的随访期
+        followup_info = study_pop[study_pop['patient_id'] == patient_id].iloc[0]
+        followup_start = followup_info['followup_start']
+        followup_end = followup_info['followup_end']
+        
+        # 获取当前患者的处方记录
+        patient_prescriptions = target_prescriptions[target_prescriptions['patient_id'] == patient_id].copy()
+        patient_prescriptions = patient_prescriptions.sort_values('prescription_date')
+        
+        if patient_prescriptions.empty:
+            # 没有处方记录，视为立即停药
+            discontinuation_results.append({
+                'patient_id': patient_id,
+                'discontinuation_time': 0,
+                'censored': 0,  # 0表示停药，1表示审查
+                'reason': 'no_prescriptions'
+            })
+            continue
+        
+        # 计算停药时间
+        discontinuation_time = None
+        last_prescription_date = patient_prescriptions.iloc[-1]['prescription_date']
+        
+        # 检查最后一次处方后是否达到停药标准
+        if (followup_end - last_prescription_date).days >= discontinuation_days:
+            # 在随访期内停药
+            discontinuation_time = (last_prescription_date + timedelta(days=discontinuation_days) - followup_start).days
+            if discontinuation_time > (followup_end - followup_start).days:
+                discontinuation_time = (followup_end - followup_start).days  # 限制在随访期内
+        else:
+            # 随访期结束时尚未停药，进行审查
+            discontinuation_time = (followup_end - followup_start).days
+            discontinuation_results.append({
+                'patient_id': patient_id,
+                'discontinuation_time': discontinuation_time,
+                'censored': 1,  # 1表示审查（未观察到停药事件）
+                'reason': 'censored'
+            })
+            continue
+        
+        # 如果确实发生了停药
+        if discontinuation_time is not None:
+            discontinuation_results.append({
+                'patient_id': patient_id,
+                'discontinuation_time': discontinuation_time,
+                'censored': 0,  # 0表示停药（观察到停药事件）
+                'reason': 'discontinued'
+            })
+        else:
+            # 未发生停药但在随访期结束
+            discontinuation_time = (followup_end - followup_start).days
+            discontinuation_results.append({
+                'patient_id': patient_id,
+                'discontinuation_time': discontinuation_time,
+                'censored': 1,  # 1表示审查
+                'reason': 'censored_end_followup'
+            })
+    
+    discontinuation_df = pd.DataFrame(discontinuation_results)
+    
+    # 与治疗组信息合并
+    discontinuation_df = discontinuation_df.merge(
+        study_pop[['patient_id', 'treatment_group']], 
+        on='patient_id', 
+        how='left'
+    )
+    
+    print(f"治疗持续性计算完成，共处理 {len(discontinuation_df)} 名患者")
+    print(f"停药患者数: {len(discontinuation_df[discontinuation_df['censored'] == 0])}")
+    print(f"审查患者数: {len(discontinuation_df[discontinuation_df['censored'] == 1])}")
+    
+    return discontinuation_df
+
+if __name__ == "__main__":
+    # 加载数据
+    data = load_data()
+    
+    # 计算结局指标
+    outcomes = calculate_outcomes(data)
+    
+    # 计算PDC
+    pdc_df = calculate_pdc(data)
+    
+    # 计算停药时间
+    discontinuation_df = calculate_discontinuation_time(data)
+    
+    print("\n治疗持续性分析完成！")
+    
+    # 保存中间结果
+    os.makedirs('task4/tables', exist_ok=True)
+    outcomes.to_csv('task4/tables/outcomes.csv', index=False)
+    pdc_df.to_csv('task4/tables/pdc_results.csv', index=False)
+    
+    # 保存停药分析结果
+    discontinuation_df.to_csv('task4/tables/discontinuation_analysis.csv', index=False)
+    print("停药分析结果已保存至 task4/tables/discontinuation_analysis.csv")

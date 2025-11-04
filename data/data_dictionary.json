@@ -1,0 +1,55 @@
+{
+  "patient_demographics.csv": {
+    "description": "患者人口统计学信息",
+    "columns": {
+      "patient_id": "患者唯一标识符",
+      "age": "年龄",
+      "gender": "性别 (M/F)",
+      "region": "地区"
+    }
+  },
+  "diagnoses.csv": {
+    "description": "诊断记录",
+    "columns": {
+      "patient_id": "患者唯一标识符",
+      "diagnosis_date": "诊断日期",
+      "icd10_code": "ICD-10编码",
+      "diagnosis_name": "诊断名称",
+      "is_target_disease": "是否为目标疾病 (True/False)"
+    }
+  },
+  "prescriptions.csv": {
+    "description": "处方记录",
+    "columns": {
+      "patient_id": "患者唯一标识符",
+      "prescription_date": "处方日期",
+      "drug_code": "药物编码",
+      "drug_name": "药物名称",
+      "days_supply": "供应天数",
+      "quantity": "数量",
+      "is_target_drug": "是否为目标药物 (True/False)",
+      "treatment_group": "治疗组 (DRUG_A/DRUG_B)",
+      "first_rx_date": "首次用药日期"
+    }
+  },
+  "medical_events.csv": {
+    "description": "医疗事件记录",
+    "columns": {
+      "patient_id": "患者唯一标识符",
+      "event_date": "事件日期",
+      "event_type": "事件类型 (ER/Hospitalization/Outpatient)",
+      "length_of_stay": "住院天数 (仅住院事件)",
+      "treatment_group": "治疗组"
+    }
+  },
+  "costs.csv": {
+    "description": "费用记录",
+    "columns": {
+      "patient_id": "患者唯一标识符",
+      "cost_date": "费用发生日期",
+      "cost_type": "费用类型 (Prescription/Prescription_Concomitant/ER/Hospitalization/Outpatient)",
+      "cost_amount": "费用金额",
+      "treatment_group": "治疗组"
+    }
+  }
+}

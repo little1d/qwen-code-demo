@@ -1,0 +1,9 @@
+,test,statistic,p_value,significant
+age,t-test,0.06602938459057815,0.9476405752328905,False
+gender,Chi-squared test,0.7552447552447552,0.3848207735230651,False
+region,Chi-squared test,4.86002886002886,0.301963248764827,False
+comorbidity_count,t-test,-0.6682828306544863,0.5072927030791343,False
+baseline_ER_events,t-test,,,False
+baseline_Hospitalization_events,t-test,,,False
+baseline_Outpatient_events,t-test,,,False
+total_baseline_cost,t-test,,,False
